@@ -1,43 +1,59 @@
-# SPDX-FileCopyrightText: 2021 Serokell <https://serokell.io/>
-#
-# SPDX-License-Identifier: CC0-1.0
+# To automatically load this flake into your shell:
+#   1. Set up direnv and nix-direnv.
+#   2. Create a file named ".envrc.local", with the contents `use flake`.
 
 {
-  description = "My haskell application";
+  description = "Servant Example";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
-    flake-utils.url = "github:numtide/flake-utils";
+    nixpkgs = {
+      # url = github:NixOS/nixpkgs/nixos-22.05;
+      url = github:NixOS/nixpkgs;
+    };
+
+    flake-utils = {
+      url = github:numtide/flake-utils;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs =
+    { self
+    , nixpkgs
+    , flake-utils
+    }:
+    let
+      ghcVersion = "9.4.7";
+      ghcName = "ghc${builtins.replaceStrings ["."] [""] ghcVersion}";
+      packageName = "servant-example";
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
-
-        haskellPackages = pkgs.haskellPackages;
-
-        jailbreakUnbreak = pkg:
-          pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
-
-        packageName = "servant-example";
-      in {
-        packages.${packageName} =
-          haskellPackages.callCabal2nix packageName self rec {
-            # Dependency overrides go here
-          };
-
-        packages.default = self.packages.${system}.${packageName};
-        defaultPackage = self.packages.${system}.default;
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            haskellPackages.haskell-language-server # you must build it with your ghc to work
-            ghcid
-            cabal-install
-          ];
-          inputsFrom = map (__getAttr "env") (__attrValues self.packages.${system});
+        pkgs = import nixpkgs {
+          inherit system;
         };
-        devShell = self.devShells.${system}.default;
-      });
+        haskellCompiler = pkgs.haskell.compiler."${ghcName}";
+        haskellPackages = pkgs.haskell.packages."${ghcName}";
+      in
+        {
+          packages.default = (haskellPackages.callCabal2nix packageName ./. { });
+
+          pkgs.formatter = nixpkgs.legacyPackages."${system}".nixpkgs-fmt;
+
+          devShells.default = pkgs.mkShell {
+            name = "${packageName}-shell";
+
+            # We list top-level packages before packages scoped to the GHC version, so
+            # that they appear first in the PATH. Otherwise we might end up with older
+            # versions of transitive dependencies (e.g. HLS depending on Ormolu).
+            buildInputs = [
+              pkgs.cabal-install
+              pkgs.hlint
+              pkgs.ormolu
+              haskellCompiler
+              haskellPackages.ghcid
+              haskellPackages.haskell-language-server
+            ];
+          };
+        }
+    );
 }
